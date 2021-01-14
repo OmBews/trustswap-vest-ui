@@ -9,9 +9,9 @@
       <div class="count-indicator">
         <div class="next-claim">Next Claim</div>
         <div class="counter">
-          <div v-if="hour" class="hour">{{ hour }}:</div>
-          <div class="hour">{{ min }}:</div>
-          <div class="hour">{{ sec }}</div>
+          <div v-if="hour">{{ getHour }}:</div>
+          <div>{{ getMin }}:</div>
+          <div>{{ getSec }}</div>
         </div>
       </div>
       <div class="card-container">
@@ -31,21 +31,51 @@
         </div>
       </div>
       <div class="footer">
-        <button class="round claim-but">Claim now</button>
+        <button class="round claim-but">CLAIM NOW</button>
       </div>
     </div>
   </div>
 </template>
 
 <script>
+import { mapState } from "vuex";
+import BigNumber from "bignumber.js";
 export default {
   data: () => ({
     claimable: 0,
     totalClaimed: 0,
-    hour: 0,
-    min: 0,
-    sec: 49,
+    countDown: 0,
   }),
+  computed: {
+    ...mapState({
+      address: (state) => state.account.address,
+      tokenLocker: (state) => state.contract.tokenLocker,
+      web3: (state) => state.metamask.web3,
+      provider: (state) => state.metamask.provider,
+    }),
+    getHour() {
+      return 0;
+    },
+    getMin() {
+      return 0;
+    },
+    getSec() {
+      return 0;
+    },
+  },
+  watch: {
+    async address(value) {
+      if (value) await this.loadContract();
+    },
+  },
+  methods: {
+    async loadContract() {
+      if (!this.tokenLocker) return;
+    },
+  },
+  async mounted() {
+    await this.loadContract();
+  },
 };
 </script>
 <style lang="scss" scoped>
