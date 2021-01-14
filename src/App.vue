@@ -2,6 +2,7 @@
   <div id="app">
     <Navbar />
     <router-view />
+    <vue-snotify />
   </div>
 </template>
 <script>
