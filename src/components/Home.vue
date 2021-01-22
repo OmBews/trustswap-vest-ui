@@ -6,32 +6,50 @@
         collect the vested tokens in an houly basis, or any longer time frame in
         bulk.
       </div>
-      <div class="count-indicator">
+      <div v-if="isStarted" class="count-indicator">
         <div class="next-claim">Next Claim</div>
         <div class="counter">
-          <div v-if="hour">{{ getHour }}:</div>
+          <!-- <div v-if="getHour">{{ getHour }}:</div> -->
           <div>{{ getMin }}:</div>
           <div>{{ getSec }}</div>
         </div>
       </div>
+      <div v-else class="not-started-caption">
+        <div class="caption">Your vesting time is not started yet</div>
+        <div class="timeformat">Start at: {{ startTimeFormat }}</div>
+      </div>
       <div class="card-container">
+        <div class="card">
+          <img src="@/static/images/logo.png" width="80px" />
+          <div class="title">Max amount you can claim</div>
+          <div class="amount">
+            <span>{{ fromWei(amount) }}</span> SWAP
+          </div>
+        </div>
+        <div class="card">
+          <img src="@/static/images/logo.png" width="80px" />
+          <div class="title">Remaining amount you can claim</div>
+          <div class="amount">
+            <span>{{ fromWei(remainAmount) }}</span> SWAP
+          </div>
+        </div>
         <div class="card">
           <img src="@/static/images/logo.png" width="80px" />
           <div class="title">Total tokens you've already claimed</div>
           <div class="amount">
-            <span>{{ totalClaimed }}</span> SWAP
+            <span>{{ fromWei(claimedAmount) }}</span> SWAP
           </div>
         </div>
         <div class="card">
           <img src="@/static/images/logo.png" width="80px" />
           <div class="title">Available tokens to be claimed</div>
           <div class="amount">
-            <span>{{ claimable }}</span> SWAP
+            <span>{{ fromWei(claimable) }}</span> SWAP
           </div>
         </div>
       </div>
       <div class="footer">
-        <button class="round claim-but">CLAIM NOW</button>
+        <button class="round claim-but" @click="claimNow">CLAIM NOW</button>
       </div>
     </div>
   </div>
@@ -40,11 +58,18 @@
 <script>
 import { mapState } from "vuex";
 import BigNumber from "bignumber.js";
+import moment from "moment";
 export default {
   data: () => ({
+    claimedAmount: 0,
     claimable: 0,
-    totalClaimed: 0,
     countDown: 0,
+    amount: 0,
+    startTimestamp: 0,
+    startTimeFormat: "",
+    lockHours: 0,
+    remainAmount: 0,
+    isStarted: false,
   }),
   computed: {
     ...mapState({
@@ -54,13 +79,16 @@ export default {
       provider: (state) => state.metamask.provider,
     }),
     getHour() {
-      return 0;
+      const hour = Math.floor(this.countDown / 60 / 60) % 24;
+      return hour > 9 ? hour : "0" + hour;
     },
     getMin() {
-      return 0;
+      const min = Math.floor(this.countDown / 60) % 60;
+      return min > 9 ? min : "0" + min;
     },
     getSec() {
-      return 0;
+      const sec = this.countDown % 60;
+      return sec > 9 ? sec : "0" + sec;
     },
   },
   watch: {
@@ -69,12 +97,72 @@ export default {
     },
   },
   methods: {
-    async loadContract() {
-      if (!this.tokenLocker) return;
+    async claimNow() {
+      try {
+        const { transactionHash } = await this.tokenLocker.methods
+          .claimToken(this.claimable)
+          .send({
+            from: this.address,
+          });
+        const tx = await this.web3.eth.getTransactionReceipt(transactionHash);
+        if (tx) {
+          this.$snotify.success(
+            `Successfully claimed ${this.fromWei(this.claimable)} SWAP tokens`
+          );
+          await this.loadContract(false);
+        }
+      } catch (error) {
+        console.error(error);
+        this.$snotify.error(error.message);
+      }
+    },
+    fromWei(data) {
+      if (!this.web3) return 0;
+      return new BigNumber(
+        this.web3.utils.fromWei(this.web3.utils.toBN(data))
+      ).toFixed(0);
+    },
+    startCountDown() {
+      const currentTimestamp = Math.round(new Date().getTime() / 1000);
+      const leftSecs = currentTimestamp - this.startTimestamp;
+      this.isStarted = leftSecs > 0;
+      if (leftSecs < 0) {
+        this.startTimeFormat = moment
+          .unix(this.startTimestamp)
+          .utc()
+          .format("YYYY/MM/DD hh:mm z");
+        return;
+      }
+      const passedHours = Math.floor(leftSecs / 60 / 60);
+      const offset = leftSecs - passedHours * 3600;
+      this.countDown = 3600 - offset;
+      if (passedHours >= this.lockHours)
+        this.claimable = new BigNumber(this.amount)
+          .minus(this.claimedAmount)
+          .toFixed(0);
+      else
+        this.claimable = new BigNumber(this.amount)
+          .dividedBy(this.lockHours)
+          .multipliedBy(passedHours)
+          .minus(this.claimedAmount)
+          .toFixed(0);
+      this.remainAmount = new BigNumber(this.amount).minus(this.claimedAmount);
+      setTimeout(() => this.startCountDown(), 1000);
+    },
+    async loadContract(startTimer) {
+      if (!this.tokenLocker || !this.web3) return;
+      const res = await this.tokenLocker.methods
+        .getLockData(this.address)
+        .call();
+      this.amount = res[0];
+      this.startTimestamp = res[1];
+      this.lockHours = res[2];
+      this.claimedAmount = res[3];
+      if (startTimer) this.startCountDown();
     },
   },
   async mounted() {
-    await this.loadContract();
+    await this.loadContract(true);
   },
 };
 </script>
@@ -109,6 +197,20 @@ export default {
       font-size: 3rem;
       margin-right: 10px;
     }
+    &.blue {
+      color: #0d1365;
+    }
+  }
+  .not-started-caption {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 1rem;
+    font-size: 1.2rem;
+    gap: 10px;
+    .caption {
+      color: #0d1365;
+    }
   }
   .card-container {
     padding: 3rem 0;
@@ -134,6 +236,7 @@ export default {
       .amount {
         margin-top: 10px;
         font-size: 1.5rem;
+        word-break: break-word;
         span {
           font-size: 2.5rem;
           font-weight: 500;
